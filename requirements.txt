@@ -1,5 +1,7 @@
-fastapi
-uvicorn
-openai-whisper
+streamlit
 transformers
 torch
+pydub
+whisper
+requests
+ffmpeg-python
