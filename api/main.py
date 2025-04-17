@@ -12,6 +12,10 @@ audio_model = AudioToText()  # Transcription model
 summarizer = load_and_summarize  # Summarizer function
 classifier = SpamClassifier()  # Spam classification model
 
+# Ensure directories exist for storing files
+os.makedirs("data/inputs", exist_ok=True)
+os.makedirs("data/outputs", exist_ok=True)
+
 @app.post("/upload/")
 async def upload_audio(file: UploadFile = File(...)):
     input_path = f"data/inputs/{file.filename}"
@@ -23,16 +27,25 @@ async def upload_audio(file: UploadFile = File(...)):
 
     # Step 1: Transcribe audio to text
     print("🔄 Transcribing audio...")
-    transcribed_text = audio_model.transcribe(input_path)
+    try:
+        transcribed_text = audio_model.transcribe(input_path)
+    except Exception as e:
+        return {"error": f"Error transcribing audio: {e}"}
 
     # Step 2: Summarize the transcribed text
     print("🧠 Summarizing transcribed text...")
-    summarized_text = summarizer(transcribed_text)
+    try:
+        summarized_text = summarizer(transcribed_text)
+    except Exception as e:
+        return {"error": f"Error summarizing text: {e}"}
     print(f"📝 Summary: {summarized_text}")  # Debug: print the summary
 
     # Step 3: Classify summarized text as Spam or Not Spam
     print("📦 Classifying text...")
-    label, score = classifier.classify(summarized_text)
+    try:
+        label, score = classifier.classify(summarized_text)
+    except Exception as e:
+        return {"error": f"Error classifying text: {e}"}
 
     # Step 4: Prepare and save the result
     result = {
@@ -45,6 +58,9 @@ async def upload_audio(file: UploadFile = File(...)):
     # Save the result in a JSON file
     output_path = f"data/outputs/{file.filename}_result.json"
     print(f"📂 Saving result to: {output_path}")
-    save_to_json(result, output_path)
+    try:
+        save_to_json(result, output_path)
+    except Exception as e:
+        return {"error": f"Error saving result to JSON: {e}"}
 
     return result
