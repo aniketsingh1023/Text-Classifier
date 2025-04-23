@@ -1,42 +1,39 @@
-# frontend/app.py (Refactored Streamlit UI)
 import streamlit as st
 import requests
-from rich.console import Console
-from rich.panel import Panel
-from rich.rule import Rule
 
-console = Console()
-st.set_page_config(page_title="🎧 Voice Assistant", layout="wide")
-st.title("🎧 Voice Assistant")
-st.markdown("Upload an audio file and get transcription, spam classification, and summarization.")
+st.title("🧠 Multilingual Spam Classifier")
 
-# Upload UI
-uploaded_file = st.file_uploader("Upload Audio", type=["mp3", "wav", "m4a"])
+text_input = st.text_area("Enter your text here (or upload audio below):")
 
-if uploaded_file:
-    with st.spinner("Processing audio..."):
-        files = {"file": (uploaded_file.name, uploaded_file, uploaded_file.type)}
-        response = requests.post("http://localhost:8000/upload/", files=files)
+audio_file = st.file_uploader("Or upload an audio file (.mp3/.wav):", type=["mp3", "wav"])
 
-        if response.status_code == 200:
-            result = response.json()
+if st.button("Analyze"):
+    if text_input:
+        response = requests.post("http://127.0.0.1:8000/analyze/", data={"text": text_input})
+    elif audio_file:
+        response = requests.post(
+            "http://127.0.0.1:8000/analyze/",
+            files={"file": (audio_file.name, audio_file)}
+        )
+    else:
+        st.warning("Please provide either text or an audio file.")
+        st.stop()
 
-            console.rule("[bold green]🎧 Voice Assistant Result")
+    if response.status_code == 200:
+        result = response.json()["result"]
+        st.json(result)
 
-            console.print(Panel(f"[bold yellow]🎙️ Transcription:\n[/bold yellow]{result.get('transcription', 'No transcription')}"))
-            console.print(Panel(f"[bold magenta]🧪 Classification:[/bold magenta] {result.get('label')} (Score: {result.get('score'):.2f})"))
-            console.print(Panel(f"[bold cyan]📝 Summary:\n[/bold cyan]{result.get('summary', 'No summary')}", expand=False))
+        # Get audio from the returned path
+        audio_url = f"http://127.0.0.1:8000{response.json()['audio_file']}"
+        audio_response = requests.get(audio_url)
 
-            st.subheader("🎙️ Transcription")
-            st.success(result.get("transcription", "No transcription available."))
-
-            st.subheader("🧪 Spam Classification")
-            st.info(f"Label: **{result.get('label')}** | Score: {result.get('score'):.2f}")
-
-            st.subheader("📝 Summary")
-            st.warning(result.get("summary", "No summary available."))
-
+        if audio_response.status_code == 200:
+            st.audio(audio_response.content, format="audio/mp3")
         else:
-            st.error("Failed to process the audio. Please try again.")
-else:
-    st.info("Please upload an audio file to get started.")
+            st.warning("Audio could not be retrieved.")
+
+        if st.button("Analyze Further"):
+            st.info("Launching detailed analysis view... (Coming Soon!)")
+
+    else:
+        st.error("Something went wrong!")

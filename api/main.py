@@ -1,48 +1,76 @@
-# api/main.py (Refactored with better error handling and cleaner output)
-from fastapi import FastAPI, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware
-import os
+from fastapi import FastAPI, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
+from typing import Optional
 from app.audio_to_text import AudioToText
-from app.spam_classifier import SpamClassifier
 from app.summarizer import load_and_summarize
+from app.spam_classifier import SpamClassifier
+from app.utils import append_to_db
+from app.tts import text_to_speech
+import os
+import uuid
 
 app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Load models once during startup
-asr = AudioToText()
+audio_model = AudioToText()
+summarizer = load_and_summarize
 classifier = SpamClassifier()
 
-@app.post("/upload/")
-async def upload_audio(file: UploadFile = File(...)):
-    input_path = f"data/inputs/{file.filename}"
+@app.post("/analyze/")
+async def analyze_input(
+    file: Optional[UploadFile] = File(None),
+    text: Optional[str] = Form(None)
+):
+    transcribed_text = None
+    temp_input_path = None
 
-    # Save uploaded audio
-    with open(input_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
+    if file:
+        temp_input_path = f"data/inputs/{uuid.uuid4()}_{file.filename}"
+        with open(temp_input_path, "wb") as f:
+            f.write(await file.read())
+        transcribed_text = audio_model.transcribe(temp_input_path)
 
-    # Step 1: Transcribe
-    transcription = asr.transcribe(input_path)
-    if not transcription:
-        return {"error": "Transcription failed. Please try with a different audio file."}
+        # Delete input audio file after transcription
+        if os.path.exists(temp_input_path):
+            os.remove(temp_input_path)
 
-    # Step 2: Classify
-    label, score = classifier.classify(transcription)
+    elif text:
+        transcribed_text = text
+    else:
+        return {"error": "Please provide either an audio file or text input."}
 
-    # Step 3: Summarize
-    summary = load_and_summarize(transcription)
+    summarized_text = summarizer(transcribed_text)
+    label, score = classifier.classify(summarized_text)
+
+    result = {
+        "id": str(uuid.uuid4()),
+        "original_text": transcribed_text,
+        "summary": summarized_text,
+        "classification": label,
+        "confidence_score": round(score, 4)
+    }
+
+    append_to_db(result)
+
+    # Generate TTS with disclaimer
+    audio_path = text_to_speech(summarized_text, label, score)
+    filename = os.path.basename(audio_path)
 
     return {
-        "transcription": transcription or "[No transcription returned]",
-        "label": label or "Unknown",
-        "score": score or 0.0,
-        "summary": summary or "[No summary available]"
+        "result": result,
+        "audio_file": f"/get_audio/{filename}"
     }
+
+
+@app.get("/get_audio/{filename}")
+async def get_audio(filename: str):
+    file_path = f"data/outputs/{filename}"
+    if not os.path.exists(file_path):
+        return {"error": "Audio file not found."}
+    
+    def file_stream_and_cleanup():
+        with open(file_path, "rb") as f:
+            data = f.read()
+        os.remove(file_path)  # Burn after use
+        yield data
+
+    return StreamingResponse(file_stream_and_cleanup(), media_type="audio/mp3")

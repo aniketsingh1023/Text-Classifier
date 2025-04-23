@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: multilingual-spam-frontend
+    runtime: python
+    buildCommand: "pip install -r ../requirements.txt"
+    startCommand: "streamlit run app.py --server.port 10001 --server.enableCORS false"
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    autoDeploy: true
+    plan: free
